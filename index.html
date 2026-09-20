@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>リュウキ 今日の演習</title>
+<style>
+:root{--bg:#f6f7fb;--card:#fff;--text:#202124;--muted:#6b7280;--line:#dfe3ea;--ok:#137333;--ng:#b3261e}
+*{box-sizing:border-box} body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans JP",sans-serif;background:var(--bg);color:var(--text)}
+.wrap{max-width:760px;margin:0 auto;padding:20px 16px 40px} h1{font-size:28px;margin:10px 0 6px}.sub{color:var(--muted);margin-bottom:20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:20px;box-shadow:0 6px 20px rgba(0,0,0,.05)}
+.subjects{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:18px 0}
+button{font:inherit;border:0;border-radius:14px;padding:14px 16px;cursor:pointer}.subject{background:#fff;border:1px solid var(--line);font-size:20px;font-weight:700;min-height:78px}
+.primary{background:#202124;color:#fff;width:100%;font-weight:700}.choice{width:100%;background:#fff;border:1px solid var(--line);text-align:left;margin:7px 0}
+input[type=text]{width:100%;padding:15px;border:1px solid var(--line);border-radius:12px;font-size:18px;margin:10px 0}
+.topline{display:flex;justify-content:space-between;color:var(--muted);font-size:14px;margin-bottom:12px}.progress{height:8px;background:#e8ebef;border-radius:99px;overflow:hidden;margin-bottom:18px}
+.bar{height:100%;background:#202124;width:0}.q{font-size:22px;line-height:1.55;white-space:pre-wrap;margin-bottom:14px}.feedback{margin-top:16px;padding:14px;border-radius:12px;display:none;line-height:1.6}
+.ok{background:#e8f5e9;color:var(--ok);display:block}.ng{background:#fce8e6;color:var(--ng);display:block}.hint{margin-top:10px;color:#7a4d00;background:#fff4d6;padding:10px 12px;border-radius:10px}
+.explain{color:#374151;margin-top:7px}.actions{display:flex;gap:10px;margin-top:16px}.actions button{flex:1}.secondary{background:#fff;border:1px solid var(--line)}
+.result{text-align:center}.score{font-size:46px;font-weight:800;margin:12px 0}.copybox{white-space:pre-wrap;background:#f7f7f8;border:1px solid var(--line);border-radius:12px;padding:14px;text-align:left;margin-top:16px;font-size:14px}
+.small{font-size:13px;color:var(--muted)} @media(max-width:520px){h1{font-size:24px}.q{font-size:20px}.subjects{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div id="home">
+<h1>リュウキ 今日の演習</h1>
+<div class="sub">科目を選んで、1問ずつ進めます。間違えた問題は最後にもう一度出ます。</div>
+<div class="subjects">
+<button class="subject" onclick="start('social')">社会</button>
+<button class="subject" onclick="start('science')">理科</button>
+</div>
+<div class="card"><b>使い方</b><p>① 科目を選ぶ → ② 答える → ③ 間違えたらヒント → ④ 最後に間違いだけ再テスト。</p><p class="small">ログイン不要。結果はこの端末内で表示されます。</p></div>
+</div>
+<div id="quiz" style="display:none"><div class="card">
+<div class="topline"><span id="subjectName"></span><span id="counter"></span></div>
+<div class="progress"><div class="bar" id="bar"></div></div>
+<div class="q" id="question"></div><div id="answerArea"></div><div id="feedback" class="feedback"></div>
+<div class="actions"><button class="secondary" onclick="goHome()">やめる</button><button class="primary" id="nextBtn" onclick="nextQuestion()" style="display:none">次へ</button></div>
+</div></div>
+<div id="result" style="display:none"><div class="card result">
+<h2>今日の結果</h2><div class="score" id="score"></div><div id="resultText"></div>
+<button class="primary" id="retryBtn" onclick="retryMistakes()" style="margin-top:16px">間違えた問題だけもう一度</button>
+<button class="secondary" onclick="goHome()" style="width:100%;margin-top:10px">科目選択へ戻る</button>
+<div class="copybox" id="copybox"></div><button class="secondary" onclick="copyResult()" style="width:100%;margin-top:10px">結果をコピー</button>
+</div></div></div>
+<script src="questions.js"></script>
+<script>
+const BANK=window.QUESTION_BANK;let subject="",list=[],idx=0,correct=0,mistakes=[],locked=false;
+function norm(s){return(s||"").trim().replace(/\s+/g,"").toLowerCase()}
+function start(s){subject=s;list=[...BANK[s]];idx=0;correct=0;mistakes=[];home.style.display="none";result.style.display="none";quiz.style.display="block";subjectName.textContent=s==="social"?"社会":"理科";render()}
+function render(){locked=false;const q=list[idx];counter.textContent=`${idx+1} / ${list.length}`;bar.style.width=`${(idx/list.length)*100}%`;question.textContent=q.q;feedback.className="feedback";feedback.innerHTML="";nextBtn.style.display="none";answerArea.innerHTML="";
+if(q.type==="choice"){q.choices.forEach(c=>{const b=document.createElement("button");b.className="choice";b.textContent=c;b.onclick=()=>submit(c);answerArea.appendChild(b)})}else{const i=document.createElement("input");i.type="text";i.id="textAnswer";i.placeholder="ここに答えを入力";i.addEventListener("keydown",e=>{if(e.key==="Enter")submit(i.value)});const b=document.createElement("button");b.className="primary";b.textContent="答える";b.onclick=()=>submit(i.value);answerArea.appendChild(i);answerArea.appendChild(b);setTimeout(()=>i.focus(),100)}}
+function isCorrect(q,v){return(q.accepted||[q.answer]).map(norm).includes(norm(v))}
+function submit(v){if(locked)return;const q=list[idx];const ok=isCorrect(q,v);if(ok){locked=true;correct++;feedback.className="feedback ok";feedback.innerHTML=`○ 正解！<div class="explain">${q.explanation}</div>`;nextBtn.style.display="block"}else{if(!mistakes.includes(q))mistakes.push(q);feedback.className="feedback ng";feedback.innerHTML=`× もう一度考えてみよう<div class="hint">ヒント：${q.hint}</div>`}}
+function nextQuestion(){idx++;if(idx>=list.length)finish();else render()}
+function finish(){quiz.style.display="none";result.style.display="block";score.textContent=`${correct} / ${list.length}`;const wrong=mistakes.length;resultText.innerHTML=wrong===0?"全問正解です。":`最初に間違えた問題：${wrong}問`;retryBtn.style.display=wrong?"block":"none";const name=subject==="social"?"社会":"理科";copybox.textContent=`リュウキ 今日の${name}演習\n正解：${correct}/${list.length}\n最初に間違えた問題：${wrong}問\n間違えた内容：\n${mistakes.map((q,i)=>`${i+1}. ${q.q.replace(/\n/g," ")}`).join("\n")||"なし"}`}
+function retryMistakes(){list=[...mistakes];idx=0;correct=0;mistakes=[];result.style.display="none";quiz.style.display="block";render()}
+function goHome(){quiz.style.display="none";result.style.display="none";home.style.display="block"}
+async function copyResult(){try{await navigator.clipboard.writeText(copybox.textContent);alert("結果をコピーしました。")}catch(e){alert("コピーできない場合は結果欄を長押ししてください。")}}
+</script></body></html>
