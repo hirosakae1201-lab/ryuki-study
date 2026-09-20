@@ -32,7 +32,7 @@ input[type=text]{width:100%;padding:15px;border:1px solid var(--line);border-rad
 <button class="subject" onclick="start('social')">社会</button>
 <button class="subject" onclick="start('science')">理科</button>
 </div>
-<div class="card"><b>使い方</b><p>① 科目を選ぶ → ② 答える → ③ 間違えたらヒント → ④ 最後に間違いだけ再テスト。</p><p class="small">ログイン不要。結果はこの端末内で表示されます。</p></div>
+<div class="card"><b>使い方</b><p>① 科目を選ぶ → ② 答える → ③ 間違えたらヒント → ④ 最後に間違いだけ再テスト。</p><p class="small">ログイン不要。結果はこの端末内で表示されます。</p><button class="secondary" onclick="toggleScope()" style="width:100%;margin-top:10px">出題範囲を見る</button><div id="scopeBox" style="display:none;margin-top:14px"></div></div>
 </div>
 <div id="quiz" style="display:none"><div class="card">
 <div class="topline"><span id="subjectName"></span><span id="counter"></span></div>
@@ -46,10 +46,28 @@ input[type=text]{width:100%;padding:15px;border:1px solid var(--line);border-rad
 <button class="secondary" onclick="goHome()" style="width:100%;margin-top:10px">科目選択へ戻る</button>
 <div class="copybox" id="copybox"></div><button class="secondary" onclick="copyResult()" style="width:100%;margin-top:10px">結果をコピー</button>
 </div></div></div>
+<script src="scope.js"></script>
 <script src="questions.js"></script>
 <script>
-const BANK=window.QUESTION_BANK;let subject="",list=[],idx=0,correct=0,mistakes=[],locked=false;
+const BANK=window.QUESTION_BANK;const SCOPE=window.STUDY_SCOPE||{};let subject="",list=[],idx=0,correct=0,mistakes=[],locked=false;
 function norm(s){return(s||"").trim().replace(/\s+/g,"").toLowerCase()}
+function toggleScope(){
+  const box=document.getElementById("scopeBox");
+  if(box.style.display==="none"){
+    const parts=["social","science"].map(k=>{
+      const s=SCOPE[k]||{};
+      const core=(s.core||[]).map(x=>`<li>${x}</li>`).join("");
+      const focus=(s.focus||[]).map(x=>`<li>${x}</li>`).join("");
+      const added=(s.added||[]);
+      const addedHtml=added.length?added.map(x=>`<li>${x}</li>`).join(""):"<li>追加教材なし</li>";
+      return `<div style="margin-bottom:16px"><b>${s.title||k}</b><div class="small" style="margin-top:6px">基本範囲</div><ul style="margin-top:4px">${core}</ul><div class="small">重点</div><ul style="margin-top:4px">${focus}</ul><div class="small">追加教材</div><ul style="margin-top:4px">${addedHtml}</ul></div>`;
+    }).join("");
+    box.innerHTML=`<div class="small" style="margin-bottom:10px">更新日：${SCOPE.updated||""}</div>${parts}`;
+    box.style.display="block";
+  }else{
+    box.style.display="none";
+  }
+}
 function start(s){subject=s;list=[...BANK[s]];idx=0;correct=0;mistakes=[];home.style.display="none";result.style.display="none";quiz.style.display="block";subjectName.textContent=s==="social"?"社会":"理科";render()}
 function render(){locked=false;const q=list[idx];counter.textContent=`${idx+1} / ${list.length}`;bar.style.width=`${(idx/list.length)*100}%`;question.textContent=q.q;feedback.className="feedback";feedback.innerHTML="";nextBtn.style.display="none";answerArea.innerHTML="";
 if(q.type==="choice"){q.choices.forEach(c=>{const b=document.createElement("button");b.className="choice";b.textContent=c;b.onclick=()=>submit(c);answerArea.appendChild(b)})}else{const i=document.createElement("input");i.type="text";i.id="textAnswer";i.placeholder="ここに答えを入力";i.addEventListener("keydown",e=>{if(e.key==="Enter")submit(i.value)});const b=document.createElement("button");b.className="primary";b.textContent="答える";b.onclick=()=>submit(i.value);answerArea.appendChild(i);answerArea.appendChild(b);setTimeout(()=>i.focus(),100)}}
