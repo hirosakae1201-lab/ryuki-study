@@ -31,6 +31,7 @@ input[type=text]{width:100%;padding:15px;border:1px solid var(--line);border-rad
 <div class="subjects">
 <button class="subject" onclick="start('social')">社会</button>
 <button class="subject" onclick="start('science')">理科</button>
+<button class="subject" onclick="startYear()" style="grid-column:1 / -1">年号5分特訓</button>
 </div>
 <div class="card"><b>使い方</b><p>① 科目を選ぶ → ② 答える → ③ 間違えたらヒント → ④ 最後に間違いだけ再テスト。</p><p class="small">ログイン不要。結果はこの端末内で表示されます。</p><button class="secondary" onclick="toggleScope()" style="width:100%;margin-top:10px">出題範囲を見る</button><div id="scopeBox" style="display:none;margin-top:14px"></div></div>
 </div>
@@ -69,12 +70,26 @@ function toggleScope(){
   }
 }
 function start(s){subject=s;list=[...BANK[s]];idx=0;correct=0;mistakes=[];home.style.display="none";result.style.display="none";quiz.style.display="block";subjectName.textContent=s==="social"?"社会":"理科";render()}
+function startYear(){
+  subject="year";
+  const pool=[...(BANK.year||[])];
+  const today=new Date();
+  let seed=Number(String(today.getFullYear())+String(today.getMonth()+1).padStart(2,"0")+String(today.getDate()).padStart(2,"0"));
+  for(let i=pool.length-1;i>0;i--){
+    seed=(seed*9301+49297)%233280;
+    const j=Math.floor((seed/233280)*(i+1));
+    [pool[i],pool[j]]=[pool[j],pool[i]];
+  }
+  list=pool.slice(0,5);idx=0;correct=0;mistakes=[];
+  home.style.display="none";result.style.display="none";quiz.style.display="block";
+  subjectName.textContent="年号5分特訓";render();
+}
 function render(){locked=false;const q=list[idx];counter.textContent=`${idx+1} / ${list.length}`;bar.style.width=`${(idx/list.length)*100}%`;question.textContent=q.q;feedback.className="feedback";feedback.innerHTML="";nextBtn.style.display="none";answerArea.innerHTML="";
 if(q.type==="choice"){q.choices.forEach(c=>{const b=document.createElement("button");b.className="choice";b.textContent=c;b.onclick=()=>submit(c);answerArea.appendChild(b)})}else{const i=document.createElement("input");i.type="text";i.id="textAnswer";i.placeholder="ここに答えを入力";i.addEventListener("keydown",e=>{if(e.key==="Enter")submit(i.value)});const b=document.createElement("button");b.className="primary";b.textContent="答える";b.onclick=()=>submit(i.value);answerArea.appendChild(i);answerArea.appendChild(b);setTimeout(()=>i.focus(),100)}}
 function isCorrect(q,v){return(q.accepted||[q.answer]).map(norm).includes(norm(v))}
 function submit(v){if(locked)return;const q=list[idx];const ok=isCorrect(q,v);if(ok){locked=true;correct++;feedback.className="feedback ok";feedback.innerHTML=`○ 正解！<div class="explain">${q.explanation}</div>`;nextBtn.style.display="block"}else{if(!mistakes.includes(q))mistakes.push(q);feedback.className="feedback ng";feedback.innerHTML=`× もう一度考えてみよう<div class="hint">ヒント：${q.hint}</div>`}}
 function nextQuestion(){idx++;if(idx>=list.length)finish();else render()}
-function finish(){quiz.style.display="none";result.style.display="block";score.textContent=`${correct} / ${list.length}`;const wrong=mistakes.length;resultText.innerHTML=wrong===0?"全問正解です。":`最初に間違えた問題：${wrong}問`;retryBtn.style.display=wrong?"block":"none";const name=subject==="social"?"社会":"理科";copybox.textContent=`リュウキ 今日の${name}演習\n正解：${correct}/${list.length}\n最初に間違えた問題：${wrong}問\n間違えた内容：\n${mistakes.map((q,i)=>`${i+1}. ${q.q.replace(/\n/g," ")}`).join("\n")||"なし"}`}
+function finish(){quiz.style.display="none";result.style.display="block";score.textContent=`${correct} / ${list.length}`;const wrong=mistakes.length;resultText.innerHTML=wrong===0?"全問正解です。":`最初に間違えた問題：${wrong}問`;retryBtn.style.display=wrong?"block":"none";const name=subject==="social"?"社会":subject==="science"?"理科":"年号5分特訓";copybox.textContent=`リュウキ 今日の${name}演習\n正解：${correct}/${list.length}\n最初に間違えた問題：${wrong}問\n間違えた内容：\n${mistakes.map((q,i)=>`${i+1}. ${q.q.replace(/\n/g," ")}`).join("\n")||"なし"}`}
 function retryMistakes(){list=[...mistakes];idx=0;correct=0;mistakes=[];result.style.display="none";quiz.style.display="block";render()}
 function goHome(){quiz.style.display="none";result.style.display="none";home.style.display="block"}
 async function copyResult(){try{await navigator.clipboard.writeText(copybox.textContent);alert("結果をコピーしました。")}catch(e){alert("コピーできない場合は結果欄を長押ししてください。")}}
