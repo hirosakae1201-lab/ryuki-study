@@ -74,16 +74,47 @@ let stream=null,facing='environment',pages=[],lastFrame=null,stableSince=0,lastC
 
 function setStatus(t){statusEl.textContent=t}
 function updateUI(){countEl.textContent=pages.length;const has=pages.length>0;pdfBtn.disabled=!has;undoBtn.disabled=!has;clearBtn.disabled=!has;thumbs.innerHTML='';pages.forEach((p,i)=>{const d=document.createElement('div');d.className='thumb';d.innerHTML='<img src="'+p+'"><div class="num">'+(i+1)+'</div>';thumbs.appendChild(d)})}
-async function startCamera(){
-  if(stream)stream.getTracks().forEach(t=>t.stop());
+async function startCamera(forceRestart=false){
   try{
-    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:facing},width:{ideal:1920},height:{ideal:2560}},audio:false});
-    video.srcObject=stream;await video.play();
-    captureBtn.disabled=false;switchBtn.disabled=false;startBtn.textContent='カメラ再開';
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+      setStatus('このブラウザではカメラ起動に対応していません。Safariで開いてください。');
+      return;
+    }
+    const live=stream&&stream.getVideoTracks().some(t=>t.readyState==='live');
+    if(live&&!forceRestart){
+      video.srcObject=stream;
+      try{await video.play()}catch(e){}
+      captureBtn.disabled=false;switchBtn.disabled=false;startBtn.textContent='カメラ使用中';
+      setStatus('カメラは起動済みです。ページを枠に入れて止めてください');
+      return;
+    }
+    if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
+    let err1=null;
+    try{
+      stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:facing}},audio:false});
+    }catch(e){
+      err1=e;
+      stream=await navigator.mediaDevices.getUserMedia({video:true,audio:false});
+    }
+    video.srcObject=stream;
+    await new Promise(resolve=>{
+      if(video.readyState>=2)return resolve();
+      video.onloadedmetadata=()=>resolve();
+      setTimeout(resolve,1200);
+    });
+    try{await video.play()}catch(e){}
+    captureBtn.disabled=false;switchBtn.disabled=false;startBtn.textContent='カメラ使用中';
     lastFrame=null;stableSince=0;wasMoving=true;setStatus('ページを枠に入れて止めてください');
     if(raf)cancelAnimationFrame(raf);scanLoop();
     try{if('wakeLock' in navigator) await navigator.wakeLock.request('screen')}catch(e){}
-  }catch(e){setStatus('カメラを開始できません。ブラウザのカメラ許可を確認してください。')}
+  }catch(e){
+    const name=e&&e.name?e.name:'';
+    if(name==='NotAllowedError'||name==='SecurityError'){
+      setStatus('カメラの許可が必要です。Safariで開き、サイトのカメラを「許可」にしてください。');
+    }else{
+      setStatus('カメラを開始できません。Safariで開き直してもう一度お試しください。');
+    }
+  }
 }
 function frameMetric(){
   const w=72,h=Math.max(96,Math.round(72*(video.videoHeight||1280)/(video.videoWidth||720)));
@@ -131,7 +162,7 @@ async function exportPDF(){
   const dt=new Date(),name='scan_'+dt.getFullYear()+String(dt.getMonth()+1).padStart(2,'0')+String(dt.getDate()).padStart(2,'0')+'_'+String(dt.getHours()).padStart(2,'0')+String(dt.getMinutes()).padStart(2,'0')+'.pdf';
   pdf.save(name);pdfBtn.disabled=false;pdfBtn.textContent='PDFを書き出す';
 }
-startBtn.onclick=startCamera;captureBtn.onclick=takeShot;switchBtn.onclick=async()=>{facing=facing==='environment'?'user':'environment';await startCamera()};
+startBtn.onclick=()=>startCamera(false);captureBtn.onclick=takeShot;switchBtn.onclick=async()=>{facing=facing==='environment'?'user':'environment';await startCamera(true)};
 undoBtn.onclick=()=>{pages.pop();updateUI()};clearBtn.onclick=()=>{if(confirm('撮影したページをすべて削除しますか？')){pages=[];updateUI()}};
 pdfBtn.onclick=exportPDF;window.addEventListener('beforeunload',e=>{if(pages.length){e.preventDefault();e.returnValue=''}});
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
