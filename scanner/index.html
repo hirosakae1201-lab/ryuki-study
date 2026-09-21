@@ -133,7 +133,7 @@ function frameMetric(){
   }
   return gray;
 }
-function diff(a,b){if(!a||a.length!==b.length)return 999;let s=0;for(let i=0;i<a.length;i++)s+=Math.abs(a[i]-b[i]);return s/a.length}
+function diff(a,b){if(!a||!b||a.length!==b.length)return 999;let s=0;for(let i=0;i<a.length;i++)s+=Math.abs(a[i]-b[i]);return s/a.length}
 function scanLoop(ts){
   try{
     if(video.readyState>=2 && video.videoWidth>0 && video.videoHeight>0){
@@ -181,7 +181,7 @@ startBtn.onclick=()=>startCamera(false);captureBtn.onclick=takeShot;switchBtn.on
 undoBtn.onclick=()=>{pages.pop();updateUI()};clearBtn.onclick=()=>{if(confirm('撮影したページをすべて削除しますか？')){pages=[];updateUI()}};
 pdfBtn.onclick=exportPDF;window.addEventListener('beforeunload',e=>{if(pages.length){e.preventDefault();e.returnValue=''}});
 if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('sw.js?v=4',{updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
+  navigator.serviceWorker.register('sw.js?v=5',{updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
 }
 updateUI();
 </script>
