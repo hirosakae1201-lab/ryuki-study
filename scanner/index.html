@@ -70,7 +70,7 @@ const video=document.getElementById('video'),statusEl=document.getElementById('s
 const startBtn=document.getElementById('startBtn'),captureBtn=document.getElementById('captureBtn'),switchBtn=document.getElementById('switchBtn');
 const autoToggle=document.getElementById('autoToggle'),pdfBtn=document.getElementById('pdfBtn'),undoBtn=document.getElementById('undoBtn'),clearBtn=document.getElementById('clearBtn');
 const countEl=document.getElementById('count'),thumbs=document.getElementById('thumbs'),work=document.getElementById('work'),capture=document.getElementById('capture');
-let stream=null,facing='environment',pages=[],lastFrame=null,stableSince=0,lastCaptureAt=0,raf=null,wasMoving=true,lastAnalyzeAt=0;
+let stream=null,facing='environment',pages=[],lastFrame=null,lastCapturedMetric=null,pageChanged=true,stableSince=0,lastCaptureAt=0,raf=null,wasMoving=true,lastAnalyzeAt=0;
 
 function setStatus(t){statusEl.textContent=t}
 function updateUI(){countEl.textContent=pages.length;const has=pages.length>0;pdfBtn.disabled=!has;undoBtn.disabled=!has;clearBtn.disabled=!has;thumbs.innerHTML='';pages.forEach((p,i)=>{const d=document.createElement('div');d.className='thumb';d.innerHTML='<img src="'+p+'"><div class="num">'+(i+1)+'</div>';thumbs.appendChild(d)})}
@@ -140,14 +140,18 @@ function scanLoop(ts){
     lastAnalyzeAt=ts;
     if(video.readyState>=2 && video.videoWidth>0 && video.videoHeight>0){
       const cur=frameMetric(),d=diff(cur,lastFrame);lastFrame=cur;
+      if(lastCapturedMetric && diff(cur,lastCapturedMetric)>4.8) pageChanged=true;
       const moving=d>3.2;
       if(moving){
-        stableSince=0;wasMoving=true;setStatus('ページをめくっています…');
+        stableSince=0;wasMoving=true;
+        setStatus(pageChanged?'ページをめくっています…':'次のページを確認中…');
       }else{
         if(!stableSince)stableSince=performance.now();
         const held=performance.now()-stableSince;
-        if(autoToggle.checked && wasMoving && held>500 && performance.now()-lastCaptureAt>950){
-          takeShot();wasMoving=false;stableSince=performance.now();
+        if(autoToggle.checked && wasMoving && pageChanged && held>500 && performance.now()-lastCaptureAt>950){
+          takeShot(cur);wasMoving=false;stableSince=performance.now();
+        }else if(wasMoving && !pageChanged){
+          setStatus('同じページです。次のページをめくってください');
         }else if(wasMoving){
           setStatus('静止を検出中… '+Math.min(100,Math.round(held/5))+'%');
         }else{
@@ -161,11 +165,17 @@ function scanLoop(ts){
   }
   raf=requestAnimationFrame(scanLoop);
 }
-function takeShot(){
+function takeShot(metric){
   if(!video.videoWidth)return;
   const maxW=1800,scale=Math.min(1,maxW/video.videoWidth),w=Math.round(video.videoWidth*scale),h=Math.round(video.videoHeight*scale);
   capture.width=w;capture.height=h;capture.getContext('2d').drawImage(video,0,0,w,h);
-  pages.push(capture.toDataURL('image/jpeg',0.88));lastCaptureAt=performance.now();navigator.vibrate&&navigator.vibrate(35);updateUI();setStatus('撮影しました：'+pages.length+'ページ');
+  pages.push(capture.toDataURL('image/jpeg',0.88));
+  try{lastCapturedMetric=metric?metric.slice():frameMetric().slice()}catch(e){lastCapturedMetric=null}
+  pageChanged=false;
+  lastCaptureAt=performance.now();
+  navigator.vibrate&&navigator.vibrate(35);
+  updateUI();
+  setStatus('撮影しました：'+pages.length+'ページ');
 }
 async function exportPDF(){
   if(!pages.length)return;
@@ -187,7 +197,7 @@ startBtn.onclick=()=>startCamera(false);captureBtn.onclick=takeShot;switchBtn.on
 undoBtn.onclick=()=>{pages.pop();updateUI()};clearBtn.onclick=()=>{if(confirm('撮影したページをすべて削除しますか？')){pages=[];updateUI()}};
 pdfBtn.onclick=exportPDF;window.addEventListener('beforeunload',e=>{if(pages.length){e.preventDefault();e.returnValue=''}});
 if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('sw.js?v=6',{updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
+  navigator.serviceWorker.register('sw.js?v=7',{updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
 }
 updateUI();
 </script>
