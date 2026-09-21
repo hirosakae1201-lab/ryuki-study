@@ -191,14 +191,27 @@ function detectCropBounds(source){
   for(let y=0;y<dh;y++){
     let bright=0;
     for(let x=0;x<dw;x++) if(gray[y*dw+x]>th) bright++;
-    rowFlags[y]=bright/dw>0.22;
+    rowFlags[y]=bright/dw>0.12;
   }
   for(let x=0;x<dw;x++){
     let bright=0;
     for(let y=0;y<dh;y++) if(gray[y*dw+x]>th) bright++;
-    colFlags[x]=bright/dh>0.20;
+    colFlags[x]=bright/dh>0.10;
   }
-  const rr=longestRun(rowFlags),cr=longestRun(colFlags);
+  const edgeBounds=(flags,minRun=3)=>{
+    const runs=[]; let s=-1;
+    for(let i=0;i<=flags.length;i++){
+      const on=i<flags.length&&flags[i];
+      if(on&&s<0)s=i;
+      if(!on&&s>=0){
+        if(i-s>=minRun)runs.push([s,i-1]);
+        s=-1;
+      }
+    }
+    if(!runs.length)return null;
+    return [runs[0][0],runs[runs.length-1][1]];
+  };
+  const rr=edgeBounds(rowFlags,3),cr=edgeBounds(colFlags,3);
   if(!rr||!cr)return null;
   let [y1,y2]=rr,[x1,x2]=cr;
   const bw=x2-x1+1,bh=y2-y1+1;
@@ -308,7 +321,7 @@ startBtn.onclick=()=>startCamera(false);captureBtn.onclick=()=>takeShot();switch
 undoBtn.onclick=()=>{pages.pop();updateUI()};clearBtn.onclick=()=>{if(confirm('撮影したページをすべて削除しますか？')){pages=[];updateUI()}};
 pdfBtn.onclick=exportPDF;window.addEventListener('beforeunload',e=>{if(pages.length){e.preventDefault();e.returnValue=''}});
 if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('sw.js?v=9',{updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
+  navigator.serviceWorker.register('sw.js?v=10',{updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
 }
 updateUI();
 </script>
