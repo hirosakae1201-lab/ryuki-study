@@ -105,14 +105,15 @@ async function startCamera(forceRestart=false){
     try{await video.play()}catch(e){}
     captureBtn.disabled=false;switchBtn.disabled=false;startBtn.textContent='カメラ使用中';
     lastFrame=null;stableSince=0;wasMoving=true;setStatus('ページを枠に入れて止めてください');
-    if(raf)cancelAnimationFrame(raf);scanLoop();
+    if(raf)cancelAnimationFrame(raf);
+    setTimeout(()=>{ try{ scanLoop(); }catch(e){ setStatus('カメラは起動中です。自動撮影の準備中…'); } },500);
     try{if('wakeLock' in navigator) await navigator.wakeLock.request('screen')}catch(e){}
   }catch(e){
     const name=e&&e.name?e.name:'';
     if(name==='NotAllowedError'||name==='SecurityError'){
       setStatus('カメラの許可が必要です。Safariで開き、サイトのカメラを「許可」にしてください。');
     }else{
-      setStatus('カメラを開始できません。Safariで開き直してもう一度お試しください。');
+      setStatus('カメラ起動に失敗しました。ページを再読み込みしてもう一度お試しください。');
     }
   }
 }
@@ -125,18 +126,22 @@ function frameMetric(){
 }
 function diff(a,b){if(!a||a.length!==b.length)return 999;let s=0;for(let i=0;i<a.length;i++)s+=Math.abs(a[i]-b[i]);return s/a.length}
 function scanLoop(ts){
-  if(video.readyState>=2){
-    const cur=frameMetric(),d=diff(cur,lastFrame);lastFrame=cur;
-    const moving=d>2.8;
-    if(moving){stableSince=0;wasMoving=true;setStatus('ページをめくっています…')}
-    else{
-      if(!stableSince)stableSince=performance.now();
-      const held=performance.now()-stableSince;
-      if(autoToggle.checked && wasMoving && held>900 && performance.now()-lastCaptureAt>1700){
-        takeShot();wasMoving=false;stableSince=performance.now();
-      }else if(wasMoving){setStatus('静止を検出中… '+Math.min(100,Math.round(held/9))+'%')}
-      else setStatus('撮影済み。次のページをめくってください');
+  try{
+    if(video.readyState>=2 && video.videoWidth>0 && video.videoHeight>0){
+      const cur=frameMetric(),d=diff(cur,lastFrame);lastFrame=cur;
+      const moving=d>2.8;
+      if(moving){stableSince=0;wasMoving=true;setStatus('ページをめくっています…')}
+      else{
+        if(!stableSince)stableSince=performance.now();
+        const held=performance.now()-stableSince;
+        if(autoToggle.checked && wasMoving && held>900 && performance.now()-lastCaptureAt>1700){
+          takeShot();wasMoving=false;stableSince=performance.now();
+        }else if(wasMoving){setStatus('静止を検出中… '+Math.min(100,Math.round(held/9))+'%')}
+        else setStatus('撮影済み。次のページをめくってください');
+      }
     }
+  }catch(e){
+    setStatus('カメラは起動中です。自動撮影の準備中…');
   }
   raf=requestAnimationFrame(scanLoop);
 }
