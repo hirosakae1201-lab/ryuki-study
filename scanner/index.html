@@ -170,7 +170,9 @@ async function exportPDF(){
 startBtn.onclick=()=>startCamera(false);captureBtn.onclick=takeShot;switchBtn.onclick=async()=>{facing=facing==='environment'?'user':'environment';await startCamera(true)};
 undoBtn.onclick=()=>{pages.pop();updateUI()};clearBtn.onclick=()=>{if(confirm('撮影したページをすべて削除しますか？')){pages=[];updateUI()}};
 pdfBtn.onclick=exportPDF;window.addEventListener('beforeunload',e=>{if(pages.length){e.preventDefault();e.returnValue=''}});
-if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js?v=3',{updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
+}
 updateUI();
 </script>
 </body>
