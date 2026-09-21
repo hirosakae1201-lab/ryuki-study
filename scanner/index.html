@@ -45,6 +45,7 @@ button:disabled{opacity:.5}.panel{margin-top:12px;background:var(--panel);border
 <div style="display:flex;gap:14px;flex-wrap:wrap;justify-content:flex-end">
 <label class="toggle"><input type="checkbox" id="autoToggle" checked> 自動撮影</label>
 <label class="toggle"><input type="checkbox" id="rotateToggle" checked> PDFを左90°回転</label>
+<label class="toggle"><input type="checkbox" id="cropToggle" checked> 自動トリミング</label>
 </div>
 </div>
 <div class="row">
@@ -61,7 +62,8 @@ button:disabled{opacity:.5}.panel{margin-top:12px;background:var(--panel);border
 2. ページを枠の中に入れ、約0.5秒止めると自動撮影。<br>
 3. ページをめくると次の静止を待ちます。<br>
 4. 最後に「PDFを書き出す」。<br><br>
-<span class="warn">※ 初期版では自動台形補正・指消しはまだありません。</span> できるだけ真上から固定してください。<br>
+「自動トリミング」をONにすると、白い教材部分を検出して机などの周囲を自動でカットします。うまく検出できない場合は安全側の余白カットに切り替わります。<br>
+<span class="warn">※ 自動台形補正・指消しはまだありません。</span> できるだけ真上から固定してください。<br>
 今回の見開き教材では「PDFを左90°回転」をONにすると読みやすい向きで保存されます。
 </div>
 <canvas id="work" hidden></canvas>
@@ -72,7 +74,7 @@ button:disabled{opacity:.5}.panel{margin-top:12px;background:var(--panel);border
 <script>
 const video=document.getElementById('video'),statusEl=document.getElementById('status');
 const startBtn=document.getElementById('startBtn'),captureBtn=document.getElementById('captureBtn'),switchBtn=document.getElementById('switchBtn');
-const autoToggle=document.getElementById('autoToggle'),rotateToggle=document.getElementById('rotateToggle'),pdfBtn=document.getElementById('pdfBtn'),undoBtn=document.getElementById('undoBtn'),clearBtn=document.getElementById('clearBtn');
+const autoToggle=document.getElementById('autoToggle'),rotateToggle=document.getElementById('rotateToggle'),cropToggle=document.getElementById('cropToggle'),pdfBtn=document.getElementById('pdfBtn'),undoBtn=document.getElementById('undoBtn'),clearBtn=document.getElementById('clearBtn');
 const countEl=document.getElementById('count'),thumbs=document.getElementById('thumbs'),work=document.getElementById('work'),capture=document.getElementById('capture');
 let stream=null,facing='environment',pages=[],lastFrame=null,lastCapturedMetric=null,pageChanged=true,stableSince=0,lastCaptureAt=0,raf=null,wasMoving=true,lastAnalyzeAt=0;
 
@@ -144,6 +146,83 @@ function changeRatio(a,b){
   for(let i=0;i<a.length;i++) if(Math.abs(a[i]-b[i])>12) changed++;
   return changed/a.length;
 }
+function otsuThreshold(gray){
+  const hist=new Uint32Array(256);
+  for(let i=0;i<gray.length;i++) hist[gray[i]]++;
+  const total=gray.length;
+  let sum=0;
+  for(let i=0;i<256;i++) sum+=i*hist[i];
+  let sumB=0,wB=0,maxVar=-1,threshold=128;
+  for(let t=0;t<256;t++){
+    wB+=hist[t];
+    if(!wB) continue;
+    const wF=total-wB;
+    if(!wF) break;
+    sumB+=t*hist[t];
+    const mB=sumB/wB,mF=(sum-sumB)/wF;
+    const between=wB*wF*(mB-mF)*(mB-mF);
+    if(between>maxVar){maxVar=between;threshold=t}
+  }
+  return Math.max(90,Math.min(210,threshold));
+}
+function longestRun(flags){
+  let bestS=0,bestE=-1,s=-1;
+  for(let i=0;i<=flags.length;i++){
+    const on=i<flags.length&&flags[i];
+    if(on&&s<0)s=i;
+    if(!on&&s>=0){
+      if(i-1-s>bestE-bestS){bestS=s;bestE=i-1}
+      s=-1;
+    }
+  }
+  return bestE>=bestS?[bestS,bestE]:null;
+}
+function detectCropBounds(source){
+  const maxDim=180,scale=Math.min(1,maxDim/Math.max(source.width,source.height));
+  const dw=Math.max(40,Math.round(source.width*scale)),dh=Math.max(40,Math.round(source.height*scale));
+  const tmp=document.createElement('canvas');tmp.width=dw;tmp.height=dh;
+  const tctx=tmp.getContext('2d',{willReadFrequently:true})||tmp.getContext('2d');
+  if(!tctx)return null;
+  tctx.drawImage(source,0,0,dw,dh);
+  const data=tctx.getImageData(0,0,dw,dh).data,gray=new Uint8Array(dw*dh);
+  for(let i=0,j=0;i<data.length;i+=4,j++)gray[j]=Math.round((data[i]*30+data[i+1]*59+data[i+2]*11)/100);
+  const th=otsuThreshold(gray);
+  const rowFlags=new Array(dh).fill(false),colFlags=new Array(dw).fill(false);
+  for(let y=0;y<dh;y++){
+    let bright=0;
+    for(let x=0;x<dw;x++) if(gray[y*dw+x]>th) bright++;
+    rowFlags[y]=bright/dw>0.22;
+  }
+  for(let x=0;x<dw;x++){
+    let bright=0;
+    for(let y=0;y<dh;y++) if(gray[y*dw+x]>th) bright++;
+    colFlags[x]=bright/dh>0.20;
+  }
+  const rr=longestRun(rowFlags),cr=longestRun(colFlags);
+  if(!rr||!cr)return null;
+  let [y1,y2]=rr,[x1,x2]=cr;
+  const bw=x2-x1+1,bh=y2-y1+1;
+  if(bw<dw*0.45||bh<dh*0.35)return null;
+  const padX=Math.round(dw*0.025),padY=Math.round(dh*0.025);
+  x1=Math.max(0,x1-padX);x2=Math.min(dw-1,x2+padX);
+  y1=Math.max(0,y1-padY);y2=Math.min(dh-1,y2+padY);
+  const sx=source.width/dw,sy=source.height/dh;
+  return {
+    x:Math.round(x1*sx),y:Math.round(y1*sy),
+    w:Math.max(1,Math.round((x2-x1+1)*sx)),
+    h:Math.max(1,Math.round((y2-y1+1)*sy))
+  };
+}
+function applyCrop(source){
+  let b=detectCropBounds(source);
+  if(!b){
+    const ix=Math.round(source.width*0.06),iy=Math.round(source.height*0.06);
+    b={x:ix,y:iy,w:source.width-ix*2,h:source.height-iy*2};
+  }
+  capture.width=b.w;capture.height=b.h;
+  const ctx=capture.getContext('2d');
+  ctx.drawImage(source,b.x,b.y,b.w,b.h,0,0,b.w,b.h);
+}
 function scanLoop(ts){
   try{
     if(ts-lastAnalyzeAt<110){raf=requestAnimationFrame(scanLoop);return}
@@ -182,17 +261,24 @@ function scanLoop(ts){
 function takeShot(metric){
   if(!video.videoWidth)return;
   const maxW=1800,scale=Math.min(1,maxW/video.videoWidth),w=Math.round(video.videoWidth*scale),h=Math.round(video.videoHeight*scale);
-  const ctx=capture.getContext('2d');
+  const raw=document.createElement('canvas');
+  const rctx=raw.getContext('2d');
   if(rotateToggle.checked){
-    capture.width=h;capture.height=w;
-    ctx.save();
-    ctx.translate(0,w);
-    ctx.rotate(-Math.PI/2);
-    ctx.drawImage(video,0,0,w,h);
-    ctx.restore();
+    raw.width=h;raw.height=w;
+    rctx.save();
+    rctx.translate(0,w);
+    rctx.rotate(-Math.PI/2);
+    rctx.drawImage(video,0,0,w,h);
+    rctx.restore();
   }else{
-    capture.width=w;capture.height=h;
-    ctx.drawImage(video,0,0,w,h);
+    raw.width=w;raw.height=h;
+    rctx.drawImage(video,0,0,w,h);
+  }
+  if(cropToggle.checked){
+    applyCrop(raw);
+  }else{
+    capture.width=raw.width;capture.height=raw.height;
+    capture.getContext('2d').drawImage(raw,0,0);
   }
   pages.push(capture.toDataURL('image/jpeg',0.88));
   try{lastCapturedMetric=metric?metric.slice():frameMetric().slice()}catch(e){lastCapturedMetric=null}
@@ -222,7 +308,7 @@ startBtn.onclick=()=>startCamera(false);captureBtn.onclick=()=>takeShot();switch
 undoBtn.onclick=()=>{pages.pop();updateUI()};clearBtn.onclick=()=>{if(confirm('撮影したページをすべて削除しますか？')){pages=[];updateUI()}};
 pdfBtn.onclick=exportPDF;window.addEventListener('beforeunload',e=>{if(pages.length){e.preventDefault();e.returnValue=''}});
 if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('sw.js?v=8',{updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
+  navigator.serviceWorker.register('sw.js?v=9',{updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
 }
 updateUI();
 </script>
