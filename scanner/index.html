@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#111827">
+<link rel="manifest" href="manifest.webmanifest">
+<title>パラパラスキャン</title>
+<style>
+:root{--bg:#0b1020;--panel:#111827;--text:#f8fafc;--muted:#a7b0c0;--line:#27324a;--accent:#e5f3ff;--ok:#7ee787;--warn:#ffd166}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans JP",sans-serif}
+.wrap{max-width:860px;margin:auto;padding:14px 14px 36px}h1{font-size:24px;margin:6px 0}.sub{color:var(--muted);font-size:14px;margin-bottom:12px}
+.viewer{position:relative;background:#000;border-radius:18px;overflow:hidden;aspect-ratio:3/4;border:1px solid var(--line)}
+video{width:100%;height:100%;object-fit:cover;display:block}.guide{position:absolute;inset:8%;border:2px solid rgba(255,255,255,.75);border-radius:12px;pointer-events:none}.status{position:absolute;left:10px;right:10px;bottom:10px;background:rgba(0,0,0,.62);backdrop-filter:blur(5px);padding:9px 12px;border-radius:12px;font-size:14px}
+.row{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap}button{font:inherit;border:0;border-radius:14px;padding:13px 15px;font-weight:700;cursor:pointer}.primary{background:#fff;color:#111827}.secondary{background:#1f2937;color:#fff;border:1px solid var(--line)}.danger{background:#3a1720;color:#ffe7eb;border:1px solid #6a2433}
+button:disabled{opacity:.5}.panel{margin-top:12px;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px}
+.stats{display:flex;justify-content:space-between;gap:10px;align-items:center}.count{font-size:22px;font-weight:800}.small{font-size:12px;color:var(--muted)}
+.toggle{display:flex;align-items:center;gap:8px}.toggle input{width:20px;height:20px}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px}.thumb{position:relative;background:#0a0f1c;border-radius:10px;overflow:hidden;border:1px solid var(--line);aspect-ratio:3/4}.thumb img{width:100%;height:100%;object-fit:cover}.num{position:absolute;left:5px;bottom:5px;background:rgba(0,0,0,.7);padding:2px 6px;border-radius:7px;font-size:12px}
+.help{line-height:1.65;font-size:14px;color:#d7deea}.ok{color:var(--ok)}.warn{color:var(--warn)}
+@media(max-width:560px){.grid{grid-template-columns:repeat(3,1fr)}.viewer{aspect-ratio:3/4}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>📚 パラパラスキャン</h1>
+<div class="sub">ページをめくって止めるだけ。静止を検出して自動撮影します。</div>
+
+<div class="viewer">
+<video id="video" autoplay playsinline muted></video>
+<div class="guide"></div>
+<div class="status" id="status">カメラを開始してください</div>
+</div>
+
+<div class="row">
+<button class="primary" id="startBtn">カメラ開始</button>
+<button class="secondary" id="captureBtn" disabled>手動撮影</button>
+<button class="secondary" id="switchBtn" disabled>カメラ切替</button>
+</div>
+
+<div class="panel">
+<div class="stats">
+<div><div class="count"><span id="count">0</span> ページ</div><div class="small">この端末内だけで処理します</div></div>
+<label class="toggle"><input type="checkbox" id="autoToggle" checked> 自動撮影</label>
+</div>
+<div class="row">
+<button class="primary" id="pdfBtn" disabled>PDFを書き出す</button>
+<button class="secondary" id="undoBtn" disabled>最後の1枚を削除</button>
+<button class="danger" id="clearBtn" disabled>全部削除</button>
+</div>
+<div class="grid" id="thumbs"></div>
+</div>
+
+<div class="panel help">
+<b>使い方</b><br>
+1. スマホを本の上に固定して「カメラ開始」。<br>
+2. ページを枠の中に入れ、約1秒止めると自動撮影。<br>
+3. ページをめくると次の静止を待ちます。<br>
+4. 最後に「PDFを書き出す」。<br><br>
+<span class="warn">※ 初期版では自動台形補正・指消しはまだありません。</span> できるだけ真上から固定してください。
+</div>
+<canvas id="work" hidden></canvas>
+<canvas id="capture" hidden></canvas>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+<script>
+const video=document.getElementById('video'),statusEl=document.getElementById('status');
+const startBtn=document.getElementById('startBtn'),captureBtn=document.getElementById('captureBtn'),switchBtn=document.getElementById('switchBtn');
+const autoToggle=document.getElementById('autoToggle'),pdfBtn=document.getElementById('pdfBtn'),undoBtn=document.getElementById('undoBtn'),clearBtn=document.getElementById('clearBtn');
+const countEl=document.getElementById('count'),thumbs=document.getElementById('thumbs'),work=document.getElementById('work'),capture=document.getElementById('capture');
+let stream=null,facing='environment',pages=[],lastFrame=null,stableSince=0,lastCaptureAt=0,raf=null,wasMoving=true;
+
+function setStatus(t){statusEl.textContent=t}
+function updateUI(){countEl.textContent=pages.length;const has=pages.length>0;pdfBtn.disabled=!has;undoBtn.disabled=!has;clearBtn.disabled=!has;thumbs.innerHTML='';pages.forEach((p,i)=>{const d=document.createElement('div');d.className='thumb';d.innerHTML='<img src="'+p+'"><div class="num">'+(i+1)+'</div>';thumbs.appendChild(d)})}
+async function startCamera(){
+  if(stream)stream.getTracks().forEach(t=>t.stop());
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:facing},width:{ideal:1920},height:{ideal:2560}},audio:false});
+    video.srcObject=stream;await video.play();
+    captureBtn.disabled=false;switchBtn.disabled=false;startBtn.textContent='カメラ再開';
+    lastFrame=null;stableSince=0;wasMoving=true;setStatus('ページを枠に入れて止めてください');
+    if(raf)cancelAnimationFrame(raf);scanLoop();
+    try{if('wakeLock' in navigator) await navigator.wakeLock.request('screen')}catch(e){}
+  }catch(e){setStatus('カメラを開始できません。ブラウザのカメラ許可を確認してください。')}
+}
+function frameMetric(){
+  const w=72,h=Math.max(96,Math.round(72*(video.videoHeight||1280)/(video.videoWidth||720)));
+  work.width=w;work.height=h;const ctx=work.getContext('2d',{willReadFrequently:true});ctx.drawImage(video,0,0,w,h);
+  const data=ctx.getImageData(0,0,w,h).data;const gray=new Uint8Array(w*h);
+  for(let i=0,j=0;i<data.length;i+=4,j++)gray[j]=(data[i]*30+data[i+1]*59+data[i+2]*11)/100;
+  return gray;
+}
+function diff(a,b){if(!a||a.length!==b.length)return 999;let s=0;for(let i=0;i<a.length;i++)s+=Math.abs(a[i]-b[i]);return s/a.length}
+function scanLoop(ts){
+  if(video.readyState>=2){
+    const cur=frameMetric(),d=diff(cur,lastFrame);lastFrame=cur;
+    const moving=d>2.8;
+    if(moving){stableSince=0;wasMoving=true;setStatus('ページをめくっています…')}
+    else{
+      if(!stableSince)stableSince=performance.now();
+      const held=performance.now()-stableSince;
+      if(autoToggle.checked && wasMoving && held>900 && performance.now()-lastCaptureAt>1700){
+        takeShot();wasMoving=false;stableSince=performance.now();
+      }else if(wasMoving){setStatus('静止を検出中… '+Math.min(100,Math.round(held/9))+'%')}
+      else setStatus('撮影済み。次のページをめくってください');
+    }
+  }
+  raf=requestAnimationFrame(scanLoop);
+}
+function takeShot(){
+  if(!video.videoWidth)return;
+  const maxW=1800,scale=Math.min(1,maxW/video.videoWidth),w=Math.round(video.videoWidth*scale),h=Math.round(video.videoHeight*scale);
+  capture.width=w;capture.height=h;capture.getContext('2d').drawImage(video,0,0,w,h);
+  pages.push(capture.toDataURL('image/jpeg',0.88));lastCaptureAt=performance.now();navigator.vibrate&&navigator.vibrate(35);updateUI();setStatus('撮影しました：'+pages.length+'ページ');
+}
+async function exportPDF(){
+  if(!pages.length)return;
+  if(!window.jspdf){alert('PDF機能の読み込みに失敗しました。通信状態を確認してください。');return}
+  pdfBtn.disabled=true;pdfBtn.textContent='PDF作成中…';
+  const {jsPDF}=window.jspdf;let pdf=null;
+  for(let i=0;i<pages.length;i++){
+    const img=new Image();await new Promise(r=>{img.onload=r;img.src=pages[i]});
+    const portrait=img.height>=img.width,format='a4',orientation=portrait?'p':'l';
+    if(!pdf)pdf=new jsPDF({orientation,unit:'mm',format});
+    else pdf.addPage(format,orientation);
+    const pw=pdf.internal.pageSize.getWidth(),ph=pdf.internal.pageSize.getHeight(),ratio=Math.min(pw/img.width,ph/img.height);
+    const iw=img.width*ratio,ih=img.height*ratio;pdf.addImage(img,'JPEG',(pw-iw)/2,(ph-ih)/2,iw,ih,undefined,'FAST');
+  }
+  const dt=new Date(),name='scan_'+dt.getFullYear()+String(dt.getMonth()+1).padStart(2,'0')+String(dt.getDate()).padStart(2,'0')+'_'+String(dt.getHours()).padStart(2,'0')+String(dt.getMinutes()).padStart(2,'0')+'.pdf';
+  pdf.save(name);pdfBtn.disabled=false;pdfBtn.textContent='PDFを書き出す';
+}
+startBtn.onclick=startCamera;captureBtn.onclick=takeShot;switchBtn.onclick=async()=>{facing=facing==='environment'?'user':'environment';await startCamera()};
+undoBtn.onclick=()=>{pages.pop();updateUI()};clearBtn.onclick=()=>{if(confirm('撮影したページをすべて削除しますか？')){pages=[];updateUI()}};
+pdfBtn.onclick=exportPDF;window.addEventListener('beforeunload',e=>{if(pages.length){e.preventDefault();e.returnValue=''}});
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+updateUI();
+</script>
+</body>
+</html>
