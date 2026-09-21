@@ -118,10 +118,19 @@ async function startCamera(forceRestart=false){
   }
 }
 function frameMetric(){
-  const w=72,h=Math.max(96,Math.round(72*(video.videoHeight||1280)/(video.videoWidth||720)));
-  work.width=w;work.height=h;const ctx=work.getContext('2d',{willReadFrequently:true});ctx.drawImage(video,0,0,w,h);
-  const data=ctx.getImageData(0,0,w,h).data;const gray=new Uint8Array(w*h);
-  for(let i=0,j=0;i<data.length;i+=4,j++)gray[j]=(data[i]*30+data[i+1]*59+data[i+2]*11)/100;
+  const w=48;
+  const ratio=(video.videoWidth>0&&video.videoHeight>0)?(video.videoHeight/video.videoWidth):(4/3);
+  const h=Math.max(64,Math.min(96,Math.round(w*ratio)));
+  work.width=w;
+  work.height=h;
+  const ctx=work.getContext('2d');
+  if(!ctx) throw new Error('Canvas2D unavailable');
+  ctx.drawImage(video,0,0,w,h);
+  const data=ctx.getImageData(0,0,w,h).data;
+  const gray=new Uint8Array(w*h);
+  for(let i=0,j=0;i<data.length;i+=4,j++){
+    gray[j]=Math.round((data[i]*30+data[i+1]*59+data[i+2]*11)/100);
+  }
   return gray;
 }
 function diff(a,b){if(!a||a.length!==b.length)return 999;let s=0;for(let i=0;i<a.length;i++)s+=Math.abs(a[i]-b[i]);return s/a.length}
@@ -141,7 +150,8 @@ function scanLoop(ts){
       }
     }
   }catch(e){
-    setStatus('カメラは起動中です。自動撮影の準備中…');
+    const msg=(e&&e.name?e.name:'Error')+(e&&e.message?': '+e.message:'');
+    setStatus('自動判定を調整中… '+msg);
   }
   raf=requestAnimationFrame(scanLoop);
 }
@@ -171,7 +181,7 @@ startBtn.onclick=()=>startCamera(false);captureBtn.onclick=takeShot;switchBtn.on
 undoBtn.onclick=()=>{pages.pop();updateUI()};clearBtn.onclick=()=>{if(confirm('撮影したページをすべて削除しますか？')){pages=[];updateUI()}};
 pdfBtn.onclick=exportPDF;window.addEventListener('beforeunload',e=>{if(pages.length){e.preventDefault();e.returnValue=''}});
 if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('sw.js?v=3',{updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
+  navigator.serviceWorker.register('sw.js?v=4',{updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
 }
 updateUI();
 </script>
