@@ -32,8 +32,33 @@ function actor(a,color,label){if(!a||a.dead>0)return;ctx.fillStyle='#14253b77';c
 actor(player,'#327cf0','リュウキ');actor(enemy,'#ed615c','CPU');for(const b of bullets){ctx.fillStyle=b.from===player?'#fff05a':'#d33b8a';ctx.beginPath();ctx.arc(b.x,b.y,7,0,Math.PI*2);ctx.fill()}
 if(!playing){ctx.fillStyle='#0002';ctx.fillRect(0,0,W,H)}}
 function loop(t){const dt=Math.min(.04,(t-last)/1000||0);last=t;update(dt);draw();requestAnimationFrame(loop)}requestAnimationFrame(loop);
-function bindStick(id,callback,knob){const el=$(id);let pid=null;function set(e){const r=el.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2;let dx=(e.clientX-cx)/(r.width*.32),dy=(e.clientY-cy)/(r.height*.32);const l=Math.max(1,Math.hypot(dx,dy));dx/=l;dy/=l;callback(dx,dy,true);if(knob)knob.style.transform='translate('+dx*25+'px,'+dy*25+'px)'}el.addEventListener('pointerdown',e=>{e.preventDefault();pid=e.pointerId;el.setPointerCapture(pid);set(e)});el.addEventListener('pointermove',e=>{if(e.pointerId===pid)set(e)});function stop(e){if(e.pointerId!==pid)return;pid=null;callback(0,0,false);if(knob)knob.style.transform=''}el.addEventListener('pointerup',stop);el.addEventListener('pointercancel',stop)}
-bindStick('joy',(x,y)=>{move={x,y}},$('knob'));bindStick('fire',(x,y,on)=>{if(on){if(Math.hypot(x,y)>.12)fireDir=norm(x,y);fireHeld=true}else{if(playing&&!paused&&fireTimer<=0){shoot(player,fireDir);fireTimer=.34}fireHeld=false}},null);
+function bindStick(id,callback,knob){
+ const el=$(id);let active=null;
+ function setXY(x,y){const r=el.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2;
+ let dx=(x-cx)/(r.width*.32),dy=(y-cy)/(r.height*.32),len=Math.max(1,Math.hypot(dx,dy));dx/=len;dy/=len;
+ callback(dx,dy,true);if(knob)knob.style.transform='translate('+dx*25+'px,'+dy*25+'px)'}
+ function stop(){if(active===null)return;active=null;callback(0,0,false);if(knob)knob.style.transform=''}
+ if(window.PointerEvent){
+ el.addEventListener('pointerdown',e=>{e.preventDefault();active=e.pointerId;try{el.setPointerCapture(e.pointerId)}catch{}setXY(e.clientX,e.clientY)});
+ el.addEventListener('pointermove',e=>{if(e.pointerId===active){e.preventDefault();setXY(e.clientX,e.clientY)}});
+ el.addEventListener('pointerup',e=>{if(e.pointerId===active)stop()});
+ el.addEventListener('pointercancel',e=>{if(e.pointerId===active)stop()});
+ el.addEventListener('lostpointercapture',e=>{if(e.pointerId===active)stop()});
+ }else{
+ el.addEventListener('touchstart',e=>{if(active!==null)return;const t=e.changedTouches[0];active=t.identifier;e.preventDefault();setXY(t.clientX,t.clientY)},{passive:false});
+ el.addEventListener('touchmove',e=>{for(const t of e.changedTouches)if(t.identifier===active){e.preventDefault();setXY(t.clientX,t.clientY);break}},{passive:false});
+ for(const ev of ['touchend','touchcancel'])el.addEventListener(ev,e=>{for(const t of e.changedTouches)if(t.identifier===active){e.preventDefault();stop();break}},{passive:false});
+ el.addEventListener('mousedown',e=>{active='mouse';setXY(e.clientX,e.clientY);e.preventDefault()});
+ addEventListener('mousemove',e=>{if(active==='mouse')setXY(e.clientX,e.clientY)});
+ addEventListener('mouseup',()=>{if(active==='mouse')stop()});
+ }
+}
+bindStick('joy',(x,y)=>{move={x,y}},$('knob'));
+bindStick('fire',(x,y,on)=>{if(on){if(Math.hypot(x,y)>.12)fireDir=norm(x,y);fireHeld=true}else{if(playing&&!paused&&fireTimer<=0){shoot(player,fireDir);fireTimer=.34}fireHeld=false}},null);
+const pressed=new Set();addEventListener('keydown',e=>{if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' ','w','a','s','d'].includes(e.key)){e.preventDefault();pressed.add(e.key);if(e.key===' ')fireHeld=true;syncKeys()}});
+addEventListener('keyup',e=>{pressed.delete(e.key);if(e.key===' ')fireHeld=false;syncKeys()});
+function syncKeys(){const x=Number(pressed.has('d')||pressed.has('ArrowRight'))-Number(pressed.has('a')||pressed.has('ArrowLeft'));const y=Number(pressed.has('s')||pressed.has('ArrowDown'))-Number(pressed.has('w')||pressed.has('ArrowUp'));if(x||y)move=norm(x,y);else move={x:0,y:0}}
+
 $('super').onclick=()=>{if(superCharge<100||!playing||paused)return;superCharge=0;const d=norm(enemy.x-player.x,enemy.y-player.y);for(let i=-2;i<=2;i++){let angle=Math.atan2(d.y,d.x)+i*.16;shoot(player,{x:Math.cos(angle),y:Math.sin(angle)},35,600)}updateHud()};
 const bank=()=>{const b=window.QUESTION_BANK||{};return [...(b.social||[]),...(b.year||[])].filter(q=>q.type==='choice'&&q.choices&&q.choices.length>=3&&q.choices.includes(q.answer))};let current=null;
 $('quizBtn').onclick=()=>{if(!quizReady||paused)return;const pool=bank();if(!pool.length){quizReady=false;return}current=pool[Math.floor(Math.random()*pool.length)];paused=true;quizReady=false;quizCount++;$('quizQuestion').textContent=current.q;$('quizChoices').replaceChildren();$('quizFeedback').textContent='';$('quizClose').style.display='none';current.choices.forEach(choice=>{let b=document.createElement('button');b.textContent=choice;b.onclick=()=>{const ok=choice===current.answer;profile.attempts++;if(ok){profile.correct++;superCharge=clamp(superCharge+50,0,100)}save();$('quizFeedback').textContent=(ok?'正解！ 必殺技 +50%':'正解：'+current.answer)+'　'+(current.explanation||'');$('quizChoices').querySelectorAll('button').forEach(x=>x.disabled=true);$('quizClose').style.display='inline-block'};$('quizChoices').appendChild(b)});$('quizModal').style.display='flex'};
